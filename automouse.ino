@@ -8,6 +8,7 @@
 #include <Adafruit_SSD1306.h>
 #include <Mouse.h>
 
+#define DEBUGGING 0
 // Adjustment controls
 #define BUTTON_UP 9
 #define BUTTON_MODE 6
@@ -43,16 +44,27 @@ int pulses = 1; // max pulses when running; control variable
 float iti = 1.0; // inter-trial interval in seconds; control variable
 
 // Runtime variables
+int last_pressed = 0;
 bool isarmed = false;
 bool isrunning = false;
 int pulseno = 0; // pulse delivery counter when running
 char outstr[8]; // 8-char holder to display iti when float -> str
 unsigned long debounce_last = 0; // debounce timer for buttons in millis
 unsigned long held_last = 0; // button holding timer
-int last_pressed = 0;
+unsigned long click_last = 0; // last mouse sent
+unsigned long draw_last = 0; // last screen refresh timer
+unsigned long run_start_time = 0;
+
+#if DEBUGGING
+  unsigned long int debugprinttime = 0;
+  unsigned long int debugtime = 0;
+#endif
 
 void setup() {
-  delay(1000); // Note: boot sequence doesn't work right without boot delay
+  #if DEBUGGING
+    Serial.begin(9600);
+  #endif
+  delay(500); // Note: boot sequence doesn't work right without boot delay
   // probably because of screen i2c communications
   
   pinMode(BUTTON_UP, INPUT_PULLUP);
@@ -60,7 +72,7 @@ void setup() {
   pinMode(BUTTON_DOWN, INPUT_PULLUP);
   pinMode(BUTTON_RUN, INPUT_PULLUP);
   pinMode(BUTTON_STOP, INPUT_PULLUP);
-  pinMode(SWITCH_ARM, INPUT_PULLUP);
+  pinMode(SWITCH_ARM, INPUT);
 
   // Init display
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
@@ -73,11 +85,16 @@ void setup() {
   display.setTextSize(1);
   display.setTextColor(WHITE);
   redraw();
-  display.display(); // actually display all of the above
 }
 
 void loop() {
   int pressed = 0;
+  bool arm_changed = false;
+  bool counter_up = false;
+  unsigned long int nowtime;
+
+  /* Note: polling all switches take ~2ms */
+  arm_changed = poll_safe_switch();
   pressed = poll_buttons();
 
   if(pressed){
@@ -91,11 +108,14 @@ void loop() {
       case ACT_CH_MODE:
         if (chmode == 1) chmode = 2;
         else chmode = 1;
-        redraw();
         break;
       case ACT_RUN:
         if (isarmed)
-          isrunning = true;
+        {
+          if (!isrunning)
+            isrunning = true;
+          run_start_time = millis();
+        }
         break;
       case ACT_STOP:
         isrunning = false;
@@ -103,24 +123,55 @@ void loop() {
       case ACT_RESET:
         break;
     }
-    yield();
-    display.display();
   }
+
+  nowtime = millis();
+  
+  if ( !isarmed && isrunning ) isrunning = false;
+  if ( isarmed && isrunning ) {
+    if ( pulseno < pulses ) {
+      if (nowtime % (unsigned int)(iti*1000) < 50) pulseno++;
+    }
+  }
+
+  if ( (arm_changed || pressed) && (nowtime - draw_last) > 50) {
+    // TODO: MAKE THIS (pressed || timer_update) && !impending_action
+    draw_last = millis();
+    redraw(); /* NOTE: THIS TAKES AT LEAST 63 ms to complete
+                * Do not draw near time-sensitive actions
+              */
+  }
+
+  #if DEBUGGING
+    debugtime = millis();
+    if( (debugtime - debugprinttime) > 500)
+    {
+      Serial.println((debugtime - nowtime));
+      debugprinttime = debugtime;
+    }
+  #endif
 }
 
 void changeval(int chdir) {
   if (chmode == 1) {
     if ( (pulses + chdir) <= 9999 && (pulses + chdir) >= 1 ) {
       pulses += chdir*PULSE_ADJ;
-      redraw();
     }
   }
   else if (chmode == 2) {
     if ( (iti + chdir*ITI_ADJ) > 0 && (iti + chdir*ITI_ADJ) <= 99 ) {
       iti += (float)chdir*ITI_ADJ;
-      redraw();
     }
   }
+}
+
+bool poll_safe_switch() {
+  bool new_armed = digitalRead(SWITCH_ARM);
+  if (new_armed ^ isarmed) {
+    isarmed = new_armed;
+    return true;
+  }
+  return false;
 }
 
 int poll_buttons() {
@@ -168,16 +219,18 @@ void redraw() {
   display.print("DBS Mode:");
   // Armed indicator
   if(isarmed) {
-    display.setTextColor(INVERSE);
+    display.setTextColor(BLACK, WHITE);
     display.println(" ARMED ");
+    display.setTextColor(WHITE);
   }
-  else display.println(" SAFE ");
+  else display.println("  SAFE ");
   // Running indicator
   if(isrunning) {
-    display.setTextColor(INVERSE);
-    display.println(" Running ");
+    display.setTextColor(BLACK, WHITE);
+    display.println("         Running ");
+    display.setTextColor(WHITE);
   }
-  else display.println("Stopped");
+  else display.println("         Stopped");
   // Pulse counter indicator
   display.print(pulseno);
   display.print(" of ");
@@ -191,5 +244,8 @@ void redraw() {
   // Adjustment indicator
   display.setCursor(120, (chmode+1)*8);
   display.print('<');
+  
+  yield();
+  display.display();
 }
 
