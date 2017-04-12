@@ -64,6 +64,7 @@ bool draw_pending = false;
 void setup() {
   #if DEBUGGING
     Serial.begin(9600);
+    while(!Serial);
   #endif
   delay(500); // Note: boot sequence doesn't work right without boot delay
   // probably because of screen i2c communications
@@ -94,6 +95,9 @@ void loop() {
   unsigned long int nowtime;
   unsigned int time_remain;
 
+  #if DEBUGGING
+    nowtime = millis();
+  #endif
   /* Note: polling all switches take ~2ms */
   arm_changed = poll_safe_switch();
   pressed = poll_buttons();
@@ -131,6 +135,19 @@ void loop() {
     }
   }
 
+  if ( isarmed ) {
+    if ( !mousehijack ) {
+      Mouse.begin();
+      mousehijack = true;
+    }
+  }
+  else {
+    if ( mousehijack ){
+      Mouse.end();
+      mousehijack = false;
+    }
+  }
+
   nowtime = millis();
   
   if ( !isarmed && isrunning ) isrunning = false;
@@ -141,7 +158,7 @@ void loop() {
         pulseno++;
         draw_pending = true;
         click_last = nowtime;
-        // CLICK
+        Mouse.click();
       }
     }
     else {
