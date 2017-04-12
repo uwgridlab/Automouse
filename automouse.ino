@@ -52,8 +52,8 @@ char outstr[8]; // 8-char holder to display iti when float -> str
 unsigned long debounce_last = 0; // debounce timer for buttons in millis
 unsigned long held_last = 0; // button holding timer
 unsigned long click_last = 0; // last mouse sent
-unsigned long draw_last = 0; // last screen refresh timer
 unsigned long run_start_time = 0;
+bool draw_pending = false;
 
 #if DEBUGGING
   unsigned long int debugprinttime = 0;
@@ -90,8 +90,8 @@ void setup() {
 void loop() {
   int pressed = 0;
   bool arm_changed = false;
-  bool counter_up = false;
   unsigned long int nowtime;
+  unsigned int time_remain;
 
   /* Note: polling all switches take ~2ms */
   arm_changed = poll_safe_switch();
@@ -112,8 +112,10 @@ void loop() {
       case ACT_RUN:
         if (isarmed)
         {
-          if (!isrunning)
+          if (!isrunning) {
             isrunning = true;
+            draw_pending = true;
+          }
           run_start_time = millis();
         }
         break;
@@ -121,6 +123,9 @@ void loop() {
         isrunning = false;
         break;
       case ACT_RESET:
+        isrunning = false;
+        pulseno = 0;
+        draw_pending = true;
         break;
     }
   }
@@ -130,22 +135,33 @@ void loop() {
   if ( !isarmed && isrunning ) isrunning = false;
   if ( isarmed && isrunning ) {
     if ( pulseno < pulses ) {
-      if (nowtime % (unsigned int)(iti*1000) < 50) pulseno++;
+      time_remain = (unsigned int)(iti*1000) - ((nowtime - run_start_time) % (unsigned int)(iti*1000));
+      if ( time_remain < 5 && (nowtime - click_last) > 50) {
+        pulseno++;
+        draw_pending = true;
+        click_last = nowtime;
+        // CLICK
+      }
+    }
+    else {
+      isrunning = false;
+      draw_pending = true;
     }
   }
 
-  if ( (arm_changed || pressed) && (nowtime - draw_last) > 50) {
-    // TODO: MAKE THIS (pressed || timer_update) && !impending_action
-    draw_last = millis();
-    redraw(); /* NOTE: THIS TAKES AT LEAST 63 ms to complete
-                * Do not draw near time-sensitive actions
-              */
+  if ( arm_changed || pressed || draw_pending ) {
+    if(!isrunning || (isrunning && (time_remain > 72))) {
+      redraw(); /* NOTE: THIS TAKES AT LEAST 63 ms to complete
+                 Do not draw near time-sensitive actions */
+      draw_pending = false;
+    }
   }
 
   #if DEBUGGING
     debugtime = millis();
-    if( (debugtime - debugprinttime) > 500)
+    if( (debugtime - debugprinttime) > 50)
     {
+//      Serial.println(draw_pending);
       Serial.println((debugtime - nowtime));
       debugprinttime = debugtime;
     }
@@ -225,12 +241,13 @@ void redraw() {
   }
   else display.println("  SAFE ");
   // Running indicator
+  display.print("        ");
   if(isrunning) {
     display.setTextColor(BLACK, WHITE);
-    display.println("         Running ");
+    display.println(" Running ");
     display.setTextColor(WHITE);
   }
-  else display.println("         Stopped");
+  else display.println(" Stopped ");
   // Pulse counter indicator
   display.print(pulseno);
   display.print(" of ");
