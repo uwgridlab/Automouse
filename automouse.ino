@@ -10,9 +10,9 @@
 
 #define DEBUGGING 0
 // Adjustment controls
-#define BUTTON_UP 9
+#define BUTTON_UP 5
 #define BUTTON_MODE 6
-#define BUTTON_DOWN 5
+#define BUTTON_DOWN 9
 // Run-time controls
 #define BUTTON_RUN 10
 #define BUTTON_STOP 11
@@ -20,7 +20,7 @@
 
 #define DEBOUNCE_TIME 80
 #define HOLD_TIME 500
-#define RESET_HOLD_TIME 1000
+#define RESET_HOLD_TIME 800
 
 #define PULSE_ADJ 1
 #define ITI_ADJ 0.05
@@ -46,6 +46,7 @@ float iti = 1.0; // inter-trial interval in seconds; control variable
 // Runtime variables
 int last_pressed = 0;
 bool isarmed = false;
+bool mousehijack = false;
 bool isrunning = false;
 int pulseno = 0; // pulse delivery counter when running
 char outstr[8]; // 8-char holder to display iti when float -> str
